@@ -223,7 +223,7 @@ function getLecturersBirthday() {
   var options = {
     method: 'POST',
     headers: {
-      tokenid:  API_KEY,
+      tokenid: API_KEY,
       contentType: 'application/json',
       accept: 'application/json'
     },
@@ -237,17 +237,49 @@ function getLecturersBirthday() {
     muteHttpExceptions: true
   };
   
-  var response = UrlFetchApp.fetch(QUERY_API_URL, options);
-  var responseData = JSON.parse(response.getContentText());
+  try {
+    var response = UrlFetchApp.fetch(QUERY_API_URL, options);
+    var responseText = response.getContentText();
+    
+    // Log the response for debugging
+    console.log('API Response:', responseText);
+    
+    // Check if response is empty or invalid
+    if (!responseText) {
+      console.error('Empty response received from API');
+      return [];
+    }
+    
+    try {
+      var responseData = JSON.parse(responseText);
+      
+      // Check if the response has the expected structure
+      if (!responseData || !responseData.data || !responseData.data["Data"]) {
+        console.error('Invalid response structure:', responseData);
+        return [];
+      }
+      
+      var lecturers = responseData.data["Data"].filter(function(lecturer) {
+        // Check if lecturer has the required field
+        if (!lecturer.pcfsystemfield249) {
+          return false;
+        }
+        // לוקח את החלק של התאריך מיום ההולדת של מדריך
+        var dobDatePart = lecturer.pcfsystemfield249.split('T')[0];
+        // משווה את היום והחודש של היום ושל היום הולדת ומחזיר אם שווה
+        return dobDatePart.slice(-5) === todayDatePart;
+      });
 
-  var lecturers = responseData.data["Data"].filter(function(lecturer) {
-    // לוקח את החלק של התאריך מיום ההולדת של מדריך
-    var dobDatePart = lecturer.pcfsystemfield249.split('T')[0];
-    // משווה את היום והחודש של היום ושל היום הולדת ומחזיר אם שווה
-    return dobDatePart.slice(-5) === todayDatePart;
-  });
-
-  return lecturers;
+      return lecturers;
+    } catch (parseError) {
+      console.error('JSON parsing error:', parseError.message);
+      console.error('Response text:', responseText);
+      return [];
+    }
+  } catch (fetchError) {
+    console.error('API fetch error:', fetchError.message);
+    return [];
+  }
 }
 
 

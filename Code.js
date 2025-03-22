@@ -399,23 +399,52 @@ function getMeetings(date) {
   var options = {
     method: 'POST',
     headers: {
-      tokenid:  API_KEY,
+      tokenid: API_KEY,
       contentType: 'application/json',
       accept: 'application/json'
     },
     payload: JSON.stringify({
-    objecttype: 6,
-    page_size: 100,
-    page_number: 1,
-    fields: 'activityid, objectid, pcfsystemfield485, pcfsystemfield485name,pcfsystemfield555, pcfsystemfield558,scheduledstart, scheduledend, statuscode',
-    query: '(scheduledstart = ' + date_str + ') AND (pcfsystemfield542 != 4) AND (objectid is-not-null) AND (pcfsystemfield485 is-not-null)'
+      objecttype: 6,
+      page_size: 100,
+      page_number: 1,
+      fields: 'activityid, objectid, pcfsystemfield485, pcfsystemfield485name,pcfsystemfield555, pcfsystemfield558,scheduledstart, scheduledend, statuscode',
+      query: '(scheduledstart = ' + date_str + ') AND (pcfsystemfield542 != 4) AND (objectid is-not-null) AND (pcfsystemfield485 is-not-null)'
     }),
-    muteHttpExceptions: true // כדי למנוע זריקת שגיאות על ידי Apps Script
+    muteHttpExceptions: true
   };
   
-  var response = UrlFetchApp.fetch(QUERY_API_URL, options);
-  var responseData = JSON.parse(response.getContentText());
-  return responseData.data["Data"];
+  try {
+    var response = UrlFetchApp.fetch(QUERY_API_URL, options);
+    var responseText = response.getContentText();
+    
+    // Log the response for debugging
+    console.log('API Response:', responseText);
+    
+    // Check if response is empty or invalid
+    if (!responseText) {
+      console.error('Empty response received from API');
+      return [];
+    }
+    
+    try {
+      var responseData = JSON.parse(responseText);
+      
+      // Check if the response has the expected structure
+      if (!responseData || !responseData.data || !responseData.data["Data"]) {
+        console.error('Invalid response structure:', responseData);
+        return [];
+      }
+      
+      return responseData.data["Data"];
+    } catch (parseError) {
+      console.error('JSON parsing error:', parseError.message);
+      console.error('Response text:', responseText);
+      return [];
+    }
+  } catch (fetchError) {
+    console.error('API fetch error:', fetchError.message);
+    return [];
+  }
 }
 
 
