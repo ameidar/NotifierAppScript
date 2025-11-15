@@ -593,12 +593,260 @@ function calculateMinutesUntilMeeting(meeting_start) {
   return diff_minutes;
 }
 
+function getPodcastInstructors() {
+  // קורא את הגיליון "podcast" ומחזיר את כל המדריכים
+  var spreadsheet_id = "1pS2K-NUKikZfF0Z2USF0Cp4AMjwaiA_ijWVJz20k8T0";
+  
+  try {
+    var spreadsheet = SpreadsheetApp.openById(spreadsheet_id);
+    var podcastSheet = spreadsheet.getSheetByName("podcast");
+    
+    if (!podcastSheet) {
+      console.error("❌ לא נמצא גיליון בשם 'podcast'");
+      return [];
+    }
+    
+    var data = podcastSheet.getDataRange().getValues();
+    var instructors = [];
+    
+    // שורה 0 היא כותרות, מתחילים משורה 1
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      if (row.length >= 6 && row[0]) { // וידוא שיש לפחות 6 עמודות ושם המדריך קיים
+        var instructor = {
+          "name": row[0] || "", // שם המדריך
+          "school_name": row[1] || "", // שם בית הספר
+          "school_city": row[2] || "", // עיר בית הספר
+          "phone": row[3] || "", // מספר נייד
+          "day": row[4] || "", // יום
+          "system_hours": row[5] || "" // שעות המערכת
+        };
+        instructors.push(instructor);
+      }
+    }
+    
+    console.log("נמצאו " + instructors.length + " מדריכי פודקאסט");
+    return instructors;
+    
+  } catch (error) {
+    console.error("❌ שגיאה בקריאת גיליון הפודקאסט: " + error.message);
+    return [];
+  }
+}
+
+function getDayNameInHebrew(date) {
+  // מחזיר את שם היום בעברית
+  var dayNames = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+  return dayNames[date.getDay()];
+}
+
+function parseTimeRange(timeRange) {
+  // מפרק טווח שעות כמו "8:00-10:00" או "12:00 -14:00" לזמני התחלה וסיום
+  if (!timeRange || !timeRange.trim()) {
+    return null;
+  }
+  
+  // ניקוי רווחים
+  var cleanTime = timeRange.trim().replace(/\s+/g, "");
+  
+  // חיפוש תבנית של HH:MM-HH:MM או HH:MM - HH:MM
+  var match = cleanTime.match(/(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})/);
+  if (match) {
+    return {
+      "start_hour": parseInt(match[1]),
+      "start_minute": parseInt(match[2]),
+      "end_hour": parseInt(match[3]),
+      "end_minute": parseInt(match[4])
+    };
+  }
+  
+  return null;
+}
+
+function isTimeToSendReminder(currentTime, systemHours) {
+  // בודק אם זה הזמן לשלוח תזכורת לפי שעות המערכת
+  // התזכורת תישלח כשעה לפני תחילת המערכת או עד 30 דקות לפני
+  var timeRange = parseTimeRange(systemHours);
+  if (!timeRange) {
+    return false;
+  }
+  
+  var current_hour = currentTime.getHours();
+  var current_minute = currentTime.getMinutes();
+  
+  // חישוב זמן עד תחילת המערכת
+  var time_diff_hours = timeRange.start_hour - current_hour;
+  var time_diff_minutes = timeRange.start_minute - current_minute;
+  var total_minutes_diff = time_diff_hours * 60 + time_diff_minutes;
+  
+  // התזכורת תישלח אם:
+  // 1. זה שעה לפני תחילת המערכת (60 דקות)
+  // 2. או אם זה קרוב לזמן תחילת המערכת (עד 30 דקות לפני)
+  // 3. אבל רק אם המערכת עדיין לא התחילה
+  if ((total_minutes_diff >= 30 && total_minutes_diff <= 60) || 
+      (total_minutes_diff >= 0 && total_minutes_diff <= 30)) {
+    return true;
+  }
+  
+  return false;
+}
+
+function sendPodcastInstructorWebhook(instructor) {
+  // שולח webhook עם פרטי מדריך הפודקאסט
+  var webhook_url = "https://hook.eu1.make.com/nxomp3nfaocg70o9iipwaiq29ve2aj7x";
+  
+  var webhook_data = {
+    "event_type": "podcast_instructor_reminder",
+    "instructor": {
+      "name": instructor.name,
+      "school_name": instructor.school_name,
+      "school_city": instructor.school_city,
+      "phone": instructor.phone,
+      "day": instructor.day,
+      "system_hours": instructor.system_hours
+    },
+    "reminder_info": {
+      "sent_at": new Date().toISOString(),
+      "reminder_type": "podcast_instructor"
+    }
+  };
+  
+  try {
+    var options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      payload: JSON.stringify(webhook_data),
+      muteHttpExceptions: true
+    };
+    
+    var response = UrlFetchApp.fetch(webhook_url, options);
+    var responseCode = response.getResponseCode();
+    var responseText = response.getContentText();
+    
+    if (responseCode >= 200 && responseCode < 300) {
+      console.log("✅ Webhook נשלח בהצלחה עבור מדריך פודקאסט: " + instructor.name);
+      console.log("פרטי המדריך: " + JSON.stringify(instructor));
+      return true;
+    } else {
+      console.error("❌ שגיאה בשליחת Webhook. קוד תגובה: " + responseCode);
+      console.error("תוכן התגובה: " + responseText);
+      return false;
+    }
+  } catch (error) {
+    console.error("❌ שגיאה בשליחת Webhook: " + error.message);
+    return false;
+  }
+}
+
+function checkAndSendPodcastReminders() {
+  // בודקת ושולחת תזכורות למדריכי הפודקאסט לפי היום והשעה
+  var today = new Date();
+  var todayDayName = getDayNameInHebrew(today);
+  
+  console.log("=== בדיקת תזכורות למדריכי פודקאסט ===");
+  console.log("יום נוכחי: " + todayDayName);
+  console.log("שעה נוכחית: " + today.getHours() + ":" + today.getMinutes());
+  
+  var instructors = getPodcastInstructors();
+  var remindersSent = 0;
+  
+  for (var i = 0; i < instructors.length; i++) {
+    var instructor = instructors[i];
+    
+    // בדיקה אם היום תואם
+    if (instructor.day && instructor.day.trim() === todayDayName) {
+      console.log("\n--- בודק מדריך: " + instructor.name + " ---");
+      console.log("יום: " + instructor.day);
+      console.log("שעות מערכת: " + instructor.system_hours);
+      
+      // בדיקה אם זה הזמן לשלוח תזכורת
+      if (isTimeToSendReminder(today, instructor.system_hours)) {
+        // בדיקה אם התזכורת כבר נשלחה היום
+        var reminder_key = "podcast_reminder_" + instructor.name + "_" + instructor.day + "_" + today.toISOString().split('T')[0];
+        var reminder_sent = PropertiesService.getScriptProperties().getProperty(reminder_key);
+        
+        if (!reminder_sent) {
+          console.log("✅ זהו הזמן לשלוח תזכורת למדריך: " + instructor.name);
+          var success = sendPodcastInstructorWebhook(instructor);
+          
+          if (success) {
+            // סימון שהתזכורת נשלחה
+            PropertiesService.getScriptProperties().setProperty(reminder_key, "true");
+            remindersSent++;
+            console.log("✅ תזכורת נשלחה וסומנה עבור: " + instructor.name);
+          }
+        } else {
+          console.log("⏰ תזכורת כבר נשלחה היום עבור: " + instructor.name);
+        }
+      } else {
+        console.log("⏰ עדיין לא הזמן לשליחת התזכורת עבור: " + instructor.name);
+      }
+    }
+  }
+  
+  console.log("\n=== סיכום תזכורות פודקאסט ===");
+  console.log("סך כל המדריכים שנבדקו: " + instructors.length);
+  console.log("תזכורות שנשלחו: " + remindersSent);
+  
+  return remindersSent;
+}
+
+function testPodcastReminders() {
+  // פונקציה לבדיקה ידנית של תזכורות למדריכי הפודקאסט
+  console.log("=== בדיקת מערכת תזכורות למדריכי פודקאסט ===");
+  
+  var instructors = getPodcastInstructors();
+  console.log("נמצאו " + instructors.length + " מדריכי פודקאסט");
+  
+  for (var i = 0; i < instructors.length; i++) {
+    var instructor = instructors[i];
+    console.log("\n--- מדריך " + (i + 1) + " ---");
+    console.log("שם: " + instructor.name);
+    console.log("בית ספר: " + instructor.school_name);
+    console.log("עיר: " + instructor.school_city);
+    console.log("טלפון: " + instructor.phone);
+    console.log("יום: " + instructor.day);
+    console.log("שעות מערכת: " + instructor.system_hours);
+    
+    // בדיקת פרסור זמן
+    var timeRange = parseTimeRange(instructor.system_hours);
+    if (timeRange) {
+      console.log("זמן תחילה: " + timeRange.start_hour + ":" + timeRange.start_minute);
+      console.log("זמן סיום: " + timeRange.end_hour + ":" + timeRange.end_minute);
+    } else {
+      console.log("⚠️ לא ניתן לפרסר את שעות המערכת");
+    }
+  }
+  
+  // בדיקה עם זמן נוכחי
+  var today = new Date();
+  var todayDayName = getDayNameInHebrew(today);
+  console.log("\n=== בדיקה לפי זמן נוכחי ===");
+  console.log("יום נוכחי: " + todayDayName);
+  console.log("שעה נוכחית: " + today.getHours() + ":" + today.getMinutes());
+  
+  for (var i = 0; i < instructors.length; i++) {
+    var instructor = instructors[i];
+    if (instructor.day && instructor.day.trim() === todayDayName) {
+      console.log("\n--- מדריך: " + instructor.name + " ---");
+      var shouldSend = isTimeToSendReminder(today, instructor.system_hours);
+      console.log("צריך לשלוח תזכורת: " + (shouldSend ? "✅ כן" : "❌ לא"));
+    }
+  }
+}
+
 
 function main() {
   try {
     // מטפל בכל הקורסים של שצריכים להתקיים היום
     var today = new Date();
     //var today = new Date("2025-03-20T08:00:00");
+    
+    // בדיקה ושליחת תזכורות למדריכי הפודקאסט
+    checkAndSendPodcastReminders();
+    
     var today_meetings = getMeetings(today);    // מחזיר פגישות שמתקיימות היום ואת זיהוי הקורסים שלהם (id)
     
     if (!today_meetings || !Array.isArray(today_meetings)) {
