@@ -1,20 +1,25 @@
 var LOGO_URL = "https://i.imgur.com/xyhnDEq.png";
 var FRAME_URL = 'https://i.imgur.com/bZCwLbU.jpeg';
 var ACCOUNT_ENDPOINT = "/1/";
-
+//var QUERY_API_URL = "https://api.fireberry.com/api/query";
+// API_KEY is defined in Code.js
 
 function birthdayEmailSender() {
-  // שולח כרטיס יום הולדת לילדים ומדריכים בעלי יום הולדת היום
-  var lecturers = getLecturersBirthday(); // מדריכים שמסומנים כפעילים עם יום הולדת היום
-  for(let i = 0; i < lecturers.length; i++)
-    sendLecturersEmail(lecturers[i].name, lecturers[i].pcfsystemfield77);
-    // console.log(lecturers[i].name, lecturers[i].pcfsystemfield77);
-  var registers = getRegistersBirthday(); // לקוחות רשומים עם יום הולדת לתלמיד היום
-  for(let i = 0; i < registers.length; i++) {
-    var email = getData(ACCOUNT_ENDPOINT + registers[i].accountid).emailaddress1;
-    if(email)
-      sendRegistersEmail(registers[i].pcfsystemfield204, email);
-      console.log(registers[i].pcfsystemfield204, email);
+  try {
+    // שולח כרטיס יום הולדת לילדים ומדריכים בעלי יום הולדת היום
+    var lecturers = getLecturersBirthday(); // מדריכים שמסומנים כפעילים עם יום הולדת היום
+    for(let i = 0; i < lecturers.length; i++)
+      sendLecturersEmail(lecturers[i].name, lecturers[i].pcfsystemfield77);
+    
+    var registers = getRegistersBirthday(); // לקוחות רשומים עם יום הולדת לתלמיד היום
+    for(let i = 0; i < registers.length; i++) {
+      var email = getData(ACCOUNT_ENDPOINT + registers[i].accountid).emailaddress1;
+      if(email)
+        sendRegistersEmail(registers[i].pcfsystemfield204, email);
+        console.log(registers[i].pcfsystemfield204, email);
+    }
+  } catch (error) {
+    console.error("Error in birthdayEmailSender:", error.message);
   }
 }
 
@@ -223,16 +228,16 @@ function getLecturersBirthday() {
   var options = {
     method: 'POST',
     headers: {
+      accept: 'application/json',
       tokenid: API_KEY,
-      contentType: 'application/json',
-      accept: 'application/json'
+      'Content-Type': 'application/json'
     },
     payload: JSON.stringify({
       objecttype: 1002,
       page_size: 20,
       page_number: 1,
-      fields: 'name, pcfsystemfield249, pcfsystemfield77', // Include the field for date of birth
-      query: '(pcfsystemfield547 = 1) AND (pcfsystemfield249 is-not-null)' // Filter by today's date
+      fields: 'name, pcfsystemfield249, pcfsystemfield77',
+      query: '(pcfsystemfield547 = 1) AND (pcfsystemfield249 is-not-null)'
     }),
     muteHttpExceptions: true
   };
@@ -241,43 +246,26 @@ function getLecturersBirthday() {
     var response = UrlFetchApp.fetch(QUERY_API_URL, options);
     var responseText = response.getContentText();
     
-    // Log the response for debugging
-    console.log('API Response:', responseText);
-    
-    // Check if response is empty or invalid
     if (!responseText) {
-      console.error('Empty response received from API');
+      console.error('Empty response received from API in getLecturersBirthday');
       return [];
     }
     
-    try {
-      var responseData = JSON.parse(responseText);
-      
-      // Check if the response has the expected structure
-      if (!responseData || !responseData.data || !responseData.data["Data"]) {
-        console.error('Invalid response structure:', responseData);
-        return [];
-      }
-      
-      var lecturers = responseData.data["Data"].filter(function(lecturer) {
-        // Check if lecturer has the required field
-        if (!lecturer.pcfsystemfield249) {
-          return false;
-        }
-        // לוקח את החלק של התאריך מיום ההולדת של מדריך
-        var dobDatePart = lecturer.pcfsystemfield249.split('T')[0];
-        // משווה את היום והחודש של היום ושל היום הולדת ומחזיר אם שווה
-        return dobDatePart.slice(-5) === todayDatePart;
-      });
-
-      return lecturers;
-    } catch (parseError) {
-      console.error('JSON parsing error:', parseError.message);
-      console.error('Response text:', responseText);
+    var responseData = JSON.parse(responseText);
+    if (!responseData || !responseData.data || !responseData.data["Data"]) {
+      console.error('Invalid response structure in getLecturersBirthday');
       return [];
     }
-  } catch (fetchError) {
-    console.error('API fetch error:', fetchError.message);
+    
+    return responseData.data["Data"].filter(function(lecturer) {
+      if (!lecturer.pcfsystemfield249) {
+        return false;
+      }
+      var dobDatePart = lecturer.pcfsystemfield249.split('T')[0];
+      return dobDatePart.slice(-5) === todayDatePart;
+    });
+  } catch (error) {
+    console.error('Error in getLecturersBirthday:', error.message);
     return [];
   }
 }
@@ -290,31 +278,46 @@ function getRegistersBirthday() {
   var options = {
     method: 'POST',
     headers: {
-      tokenid:  API_KEY,
-      contentType: 'application/json',
-      accept: 'application/json'
+      accept: 'application/json',
+      tokenid: API_KEY,
+      'Content-Type': 'application/json'
     },
     payload: JSON.stringify({
       objecttype: 33,
       page_size: 500,
       page_number: 1,
-      fields: 'pcfsystemfield204, pcfsystemfield298, accountid', // Include the field for date of birth
-      query: '(pcfsystemfield298 is-not-null)' // Filter by today's date
+      fields: 'pcfsystemfield204, pcfsystemfield298, accountid',
+      query: '(pcfsystemfield298 is-not-null)'
     }),
     muteHttpExceptions: true
   };
   
-  var response = UrlFetchApp.fetch(QUERY_API_URL, options);
-  var responseData = JSON.parse(response.getContentText());
-
-  var registers = responseData.data["Data"].filter(function(registery) {
-    // לוקח את החלק של התאריך מיום ההולדת של הילד
-    var dobDatePart = registery.pcfsystemfield298.split('T')[0];
-    // משווה את היום והחודש של היום ושל היום הולדת ומחזיר אם שווה
-    return dobDatePart.slice(-5) === todayDatePart;
-  });
-
-  return registers;
+  try {
+    var response = UrlFetchApp.fetch(QUERY_API_URL, options);
+    var responseText = response.getContentText();
+    
+    if (!responseText) {
+      console.error('Empty response received from API in getRegistersBirthday');
+      return [];
+    }
+    
+    var responseData = JSON.parse(responseText);
+    if (!responseData || !responseData.data || !responseData.data["Data"]) {
+      console.error('Invalid response structure in getRegistersBirthday');
+      return [];
+    }
+    
+    return responseData.data["Data"].filter(function(registery) {
+      if (!registery.pcfsystemfield298) {
+        return false;
+      }
+      var dobDatePart = registery.pcfsystemfield298.split('T')[0];
+      return dobDatePart.slice(-5) === todayDatePart;
+    });
+  } catch (error) {
+    console.error('Error in getRegistersBirthday:', error.message);
+    return [];
+  }
 }
 
 
